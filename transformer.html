@@ -2,7 +2,7 @@
 <html lang="ko">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>간체/번체 변환 · 구두점 변환 (개선버전)</title>
+<title>간체/번체 변환 · 구두점 변환 (아이콘 복사버튼)</title>
 
 <!-- OpenCC-JS -->
 <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
@@ -22,7 +22,24 @@
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
   .changed { background: #fff59d; }
   .will-change { background: #e1f5fe; }
-  .copy-btn { position: absolute; top: 6px; right: 6px; font-size: 0.9rem; padding: 3px 8px; }
+
+  /* 복사 아이콘 버튼 */
+  .copy-btn {
+    position: absolute;
+    top: 6px; right: 6px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 2px;
+  }
+  .copy-btn svg {
+    width: 20px;
+    height: 20px;
+    fill: #555;
+  }
+  .copy-btn:hover svg {
+    fill: #000;
+  }
 </style>
 
 <h1>간체/번체 변환 · 구두점 변환</h1>
@@ -55,7 +72,13 @@
 <div class="row" style="position: relative;">
   <label><strong>출력:</strong></label>
   <div id="output1" class="out box mono"></div>
-  <button id="copy1" class="copy-btn">복사</button>
+  <button id="copy1" class="copy-btn" title="복사">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16">
+      <path d="M10 1.5v1h1a1 1 0 0 1 1 1V14a1 
+      1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1A.5.5 
+      0 0 1 6.5 1h3a.5.5 0 0 1 .5.5z"/>
+    </svg>
+  </button>
 </div>
 
 <!-- 섹션 2: 구두점 변환만 -->
@@ -75,7 +98,13 @@
 <div class="row" style="position: relative;">
   <label><strong>출력:</strong></label>
   <textarea id="output2" class="out box" readonly></textarea>
-  <button id="copy2" class="copy-btn">복사</button>
+  <button id="copy2" class="copy-btn" title="복사">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16">
+      <path d="M10 1.5v1h1a1 1 0 0 1 1 1V14a1 
+      1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1A.5.5 
+      0 0 1 6.5 1h3a.5.5 0 0 1 .5.5z"/>
+    </svg>
+  </button>
 </div>
 
 <script>
@@ -100,7 +129,8 @@
   modeSelect.addEventListener('change',()=>{createConverter();updateSection1();});
   let composing=false;input1.addEventListener('compositionstart',()=>composing=true);input1.addEventListener('compositionend',()=>{composing=false;updateSection1();});input1.addEventListener('input',()=>{if(!composing)updateSection1();});
   clear1.addEventListener('click',()=>{input1.innerHTML='';output1.innerHTML='';count1.textContent='';});
-  copy1.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(output1.innerText||'');copy1.textContent='복사됨!';setTimeout(()=>copy1.textContent='복사',1200);}catch{copy1.textContent='실패';setTimeout(()=>copy1.textContent='복사',1200);}});
+  copy1.addEventListener('click',async()=>{await navigator.clipboard.writeText(output1.innerText||'');});
+
   createConverter();
 
   /* === 2) 구두점 변환 === */
@@ -110,6 +140,6 @@
   function updateSection2(){const text=input2.value||'';output2.value=convertPunctuation(text);count2.textContent=`한자 개수(입력 기준): ${countHanja(text)}`;}
   input2.addEventListener('input',updateSection2);
   clear2.addEventListener('click',()=>{input2.value='';output2.value='';count2.textContent='';});
-  copy2.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(output2.value||'');copy2.textContent='복사됨!';setTimeout(()=>copy2.textContent='복사',1200);}catch{copy2.textContent='실패';setTimeout(()=>copy2.textContent='복사',1200);}});
+  copy2.addEventListener('click',async()=>{await navigator.clipboard.writeText(output2.value||'');});
 </script>
 </html>
