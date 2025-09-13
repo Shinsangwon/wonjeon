@@ -2,32 +2,37 @@
 <html lang="ko">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>간체/번체 + 구두점 변환기 (강화버전)</title>
+<title>간체/번체 변환 · 구두점 변환 (정확 하이라이트/한자 카운트)</title>
 
 <!-- OpenCC-JS -->
 <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
 
 <style>
-  body { max-width: 880px; margin: 32px auto; padding: 0 16px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans CJK KR", "Apple SD Gothic Neo", sans-serif; }
-  h1 { font-size: 1.4rem; margin-bottom: .5rem; }
+  body { max-width: 920px; margin: 32px auto; padding: 0 16px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans CJK KR", "Apple SD Gothic Neo", sans-serif; }
+  h1 { font-size: 1.5rem; margin-bottom: .5rem; }
   h2 { font-size: 1.2rem; margin-top: 2rem; }
   .row { margin: 10px 0; }
-  textarea { width: 100%; min-height: 120px; box-sizing: border-box; padding: 10px; font-size: 1rem; }
   select, button { font-size: 1rem; padding: 8px 10px; }
-  .hint { color: #666; font-size: .9rem; margin-top: 4px; }
-  .out { background: #f7f7f8; border: 1px solid #ddd; padding: 10px; min-height: 120px; white-space: pre-wrap; font-size: 1rem; }
   .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .changed { background-color: #ffff88; font-weight: bold; }
+  .hint { color: #666; font-size: .9rem; margin-top: 4px; }
+  .box { border: 1px solid #ddd; background: #fff; }
+  .editable, .out { min-height: 140px; padding: 10px; font-size: 1rem; line-height: 1.6; }
+  .editable { outline: none; white-space: pre-wrap; }
+  .out { background: #f7f7f8; white-space: pre-wrap; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+  .changed { background: #fff59d; }       /* 출력: 실제로 바뀐 글자 */
+  .will-change { background: #e1f5fe; }   /* 입력: 바뀔 예정 글자(원문 측) */
+  .small { font-size: .92rem; color: #444; }
 </style>
 
-<h1>간체/번체 + 구두점 변환기</h1>
-<p class="hint">텍스트를 입력하면 선택한 변환 결과가 아래에 표시됩니다. 변환된 글자는 음영 처리됩니다.</p>
+<h1>간체/번체 변환 · 구두점 변환</h1>
+<p class="hint">기능을 분리했습니다. ① 간/번체 변환은 구두점 변환 없이 문자 변환만 수행하고, 입력/출력 모두 변경된 부분만 정확히 음영 처리합니다. ② 구두점 변환은 별도로 제공합니다.</p>
 
-<!-- 섹션 1: 간체/번체 + 구두점 -->
-<h2>1. 간체/번체 변환 + 한국식 구두점</h2>
+<!-- 섹션 1: 간체/번체 변환 (구두점 변환 제거) -->
+<h2>1. 간체/번체 변환</h2>
 <div class="row">
-  <label><strong>변환 모드:</strong></label>
   <div class="toolbar">
+    <label for="mode"><strong>변환 모드:</strong></label>
     <select id="mode">
       <option value="cn>t">간체 → 번체(표준)</option>
       <option value="t>cn">번체(표준) → 간체</option>
@@ -41,35 +46,211 @@
     <button id="copy1">결과 복사</button>
   </div>
 </div>
+
 <div class="row">
   <label><strong>입력:</strong></label>
-  <textarea id="input1" placeholder="예: 你好，世界。发展头发？"></textarea>
+  <!-- 입력도 하이라이트를 보여주기 위해 contenteditable 사용 -->
+  <div id="input1" class="editable box mono" contenteditable="true" spellcheck="false" aria-label="간체/번체 입력 영역"></div>
   <div id="count1" class="hint"></div>
 </div>
+
 <div class="row">
   <label><strong>출력:</strong></label>
-  <div id="output1" class="out"></div>
+  <div id="output1" class="out box mono" aria-live="polite"></div>
 </div>
 
 <!-- 섹션 2: 구두점 변환만 -->
-<h2>2. 구두점 변환만</h2>
+<h2>2. 구두점 변환</h2>
 <div class="row">
   <div class="toolbar">
     <button id="clear2">지우기</button>
     <button id="copy2">결과 복사</button>
   </div>
 </div>
+
 <div class="row">
   <label><strong>입력:</strong></label>
-  <textarea id="input2" placeholder="예: 你好，世界。发展头发？"></textarea>
+  <textarea id="input2" class="box" placeholder="예: 你好，世界。发展头发？" rows="6"></textarea>
+  <div id="count2" class="hint"></div>
 </div>
+
 <div class="row">
   <label><strong>출력:</strong></label>
-  <textarea id="output2" class="out" readonly></textarea>
+  <textarea id="output2" class="out box" readonly rows="6"></textarea>
 </div>
 
 <script>
-  // ===== 공통 구두점 변환 규칙 =====
+  /* ========== 유틸리티 ========== */
+
+  // 안전한 HTML 출력용 이스케이프
+  function escapeHTML(str) {
+    return str
+      .replaceAll(/&/g, "&amp;")
+      .replaceAll(/</g, "&lt;")
+      .replaceAll(/>/g, "&gt;")
+      .replaceAll(/"/g, "&quot;")
+      .replaceAll(/'/g, "&#39;");
+  }
+
+  // contenteditable에서 텍스트 추출 (NBSP -> space)
+  function getEditableText(el) {
+    return (el.innerText || "")
+      .replace(/\u00A0/g, ""); // nbsp 제거(원하지 않으면 " "로 교체)
+  }
+
+  // 유니코드 한자(확장 포함) 카운트
+  // 최신 브라우저에서 \p{Script=Han} 지원. 미지원 환경에선 보수적으로 0 반환.
+  function countHanja(text) {
+    try {
+      const re = /\p{Script=Han}/gu;
+      const m = text.match(re);
+      return m ? m.length : 0;
+    } catch {
+      // 폴백: 기본/확장A/호환만 (확장B~ 미포함)
+      const re2 = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g;
+      const m2 = text.match(re2);
+      return m2 ? m2.length : 0;
+    }
+  }
+
+  // LCS 기반 diff (문자열을 코드포인트 배열로 비교)
+  // 반환: [{type:'equal'|'insert'|'delete', chars: string[]}, ...]
+  function diffByLCS(aArr, bArr) {
+    const n = aArr.length, m = bArr.length;
+    const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        dp[i][j] = (aArr[i] === bArr[j])
+          ? dp[i + 1][j + 1] + 1
+          : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+
+    const ops = [];
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+      if (aArr[i] === bArr[j]) {
+        pushOp(ops, 'equal', aArr[i]); i++; j++;
+      } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+        pushOp(ops, 'delete', aArr[i]); i++;
+      } else {
+        pushOp(ops, 'insert', bArr[j]); j++;
+      }
+    }
+    while (i < n) { pushOp(ops, 'delete', aArr[i]); i++; }
+    while (j < m) { pushOp(ops, 'insert', bArr[j]); j++; }
+    return ops;
+
+    function pushOp(arr, type, ch) {
+      const last = arr[arr.length - 1];
+      if (last && last.type === type) last.chars.push(ch);
+      else arr.push({ type, chars: [ch] });
+    }
+  }
+
+  // 입력/출력 하이라이트 렌더러
+  // - 입력: equal => 평문, delete => will-change 로 감싸기, insert => 표시 없음
+  // - 출력: equal => 평문, insert => changed 로 감싸기, delete => 표시 없음
+  function renderHighlightedHTML(original, converted) {
+    const a = Array.from(original);  // 코드포인트 단위
+    const b = Array.from(converted);
+    const ops = diffByLCS(a, b);
+
+    let inputHTML = '';
+    let outputHTML = '';
+
+    for (const op of ops) {
+      if (op.type === 'equal') {
+        const s = escapeHTML(op.chars.join(''));
+        inputHTML += s;
+        outputHTML += s;
+      } else if (op.type === 'delete') {
+        const s = escapeHTML(op.chars.join(''));
+        inputHTML += `<span class="will-change">${s}</span>`;
+        // 출력에는 없음
+      } else if (op.type === 'insert') {
+        const s = escapeHTML(op.chars.join(''));
+        outputHTML += `<span class="changed">${s}</span>`;
+        // 입력에는 없음
+      }
+    }
+    return { inputHTML, outputHTML };
+  }
+
+  /* ========== 1) 간/번체 변환 (구두점 변환 제거) ========== */
+
+  const modeSelect = document.getElementById('mode');
+  const input1 = document.getElementById('input1');   // contenteditable
+  const output1 = document.getElementById('output1'); // div
+  const clear1  = document.getElementById('clear1');
+  const copy1   = document.getElementById('copy1');
+  const count1  = document.getElementById('count1');
+
+  let converter = null;
+
+  function parseMode(m) {
+    const [from, to] = m.split('>');
+    return { from, to };
+  }
+
+  function createConverter() {
+    const { from, to } = parseMode(modeSelect.value);
+    converter = OpenCC.Converter({ from, to });
+  }
+
+  function updateSection1() {
+    if (!converter) createConverter();
+    const original = getEditableText(input1);
+    let converted = '';
+    try {
+      converted = converter(original); // 구두점 변환 제거 (OpenCC 변환만)
+    } catch (e) {
+      output1.innerHTML = `<span class="small">[오류] ${escapeHTML(String(e))}</span>`;
+      return;
+    }
+
+    // LCS 기반로 정확히 하이라이트
+    const { inputHTML, outputHTML } = renderHighlightedHTML(original, converted);
+    input1.innerHTML  = inputHTML || '';
+    output1.innerHTML = outputHTML || '';
+
+    // 한자 개수 (원문 기준)
+    const n = countHanja(original);
+    count1.textContent = `한자 개수(입력 기준): ${n}`;
+  }
+
+  modeSelect.addEventListener('change', () => { createConverter(); updateSection1(); });
+
+  // 입력 이벤트: composition 이벤트(한중일 입력기)까지 고려
+  let composing = false;
+  input1.addEventListener('compositionstart', () => composing = true);
+  input1.addEventListener('compositionend',   () => { composing = false; updateSection1(); });
+  input1.addEventListener('input',            () => { if (!composing) updateSection1(); });
+
+  clear1.addEventListener('click', () => {
+    input1.innerHTML = '';
+    output1.innerHTML = '';
+    count1.textContent = '';
+  });
+
+  copy1.addEventListener('click', async () => {
+    // 출력의 "순수 텍스트"만 복사
+    const text = output1.innerText || '';
+    try {
+      await navigator.clipboard.writeText(text);
+      copy1.textContent = '복사됨!';
+      setTimeout(() => copy1.textContent = '결과 복사', 1200);
+    } catch {
+      copy1.textContent = '복사 실패';
+      setTimeout(() => copy1.textContent = '결과 복사', 1200);
+    }
+  });
+
+  createConverter();
+
+  /* ========== 2) 구두점 변환만 ========== */
+
   const punctMap = {
     "。": ". ",
     "，": ", ",
@@ -88,96 +269,42 @@
     "、": ", ",
     "∶": ": "
   };
-
   function convertPunctuation(text) {
     return text.replace(/[。，？！：；（）【】“”‘’、∶]/g, m => punctMap[m] || m);
   }
 
-  // ===== 한자 카운트 함수 =====
-  function countHanja(text) {
-    const hanjaRegex = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g; // 확장A + 기본 + 호환
-    const matches = text.match(hanjaRegex);
-    return matches ? matches.length : 0;
-  }
-
-  // ===== 차이 강조 함수 =====
-  function highlightDiff(original, converted) {
-    let result = '';
-    const maxLen = Math.max(original.length, converted.length);
-    for (let i = 0; i < maxLen; i++) {
-      const o = original[i] || '';
-      const c = converted[i] || '';
-      if (o !== c && c) {
-        result += `<span class="changed">${c}</span>`;
-      } else {
-        result += c;
-      }
-    }
-    return result;
-  }
-
-  // ===== 섹션 1: 간체/번체 + 구두점 =====
-  const modeSelect = document.getElementById('mode');
-  const input1 = document.getElementById('input1');
-  const output1 = document.getElementById('output1');
-  const clear1 = document.getElementById('clear1');
-  const copy1 = document.getElementById('copy1');
-  const count1 = document.getElementById('count1');
-  let converter = null;
-
-  function parseMode(m) {
-    const [from, to] = m.split('>');
-    return { from, to };
-  }
-
-  function createConverter() {
-    const { from, to } = parseMode(modeSelect.value);
-    converter = OpenCC.Converter({ from, to });
-  }
-
-  function updateOutput1() {
-    if (!converter) createConverter();
-    const text = input1.value || '';
-    try {
-      let out = converter(text);
-      out = convertPunctuation(out);
-      output1.innerHTML = highlightDiff(text, out);
-    } catch (e) {
-      output1.innerHTML = '[오류] ' + e;
-    }
-    count1.textContent = "한자 개수: " + countHanja(text);
-  }
-
-  modeSelect.addEventListener('change', () => { createConverter(); updateOutput1(); });
-  input1.addEventListener('input', updateOutput1);
-  clear1.addEventListener('click', () => { input1.value = ''; output1.innerHTML = ''; count1.textContent = ''; });
-  copy1.addEventListener('click', async () => {
-    // HTML 태그 제거 후 복사
-    const temp = output1.innerText;
-    await navigator.clipboard.writeText(temp);
-    copy1.textContent = '복사됨!';
-    setTimeout(() => copy1.textContent = '결과 복사', 1200);
-  });
-
-  createConverter();
-
-  // ===== 섹션 2: 구두점 변환만 =====
-  const input2 = document.getElementById('input2');
+  const input2  = document.getElementById('input2');
   const output2 = document.getElementById('output2');
-  const clear2 = document.getElementById('clear2');
-  const copy2 = document.getElementById('copy2');
+  const clear2  = document.getElementById('clear2');
+  const copy2   = document.getElementById('copy2');
+  const count2  = document.getElementById('count2');
 
-  function updateOutput2() {
+  function updateSection2() {
     const text = input2.value || '';
     output2.value = convertPunctuation(text);
+    count2.textContent = `한자 개수(입력 기준): ${countHanja(text)}`;
   }
 
-  input2.addEventListener('input', updateOutput2);
-  clear2.addEventListener('click', () => { input2.value = ''; output2.value = ''; });
-  copy2.addEventListener('click', async () => {
-    await navigator.clipboard.writeText(output2.value);
-    copy2.textContent = '복사됨!';
-    setTimeout(() => copy2.textContent = '결과 복사', 1200);
+  input2.addEventListener('input', updateSection2);
+  clear2.addEventListener('click', () => {
+    input2.value = '';
+    output2.value = '';
+    count2.textContent = '';
   });
+
+  copy2.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(output2.value);
+      copy2.textContent = '복사됨!';
+      setTimeout(() => copy2.textContent = '결과 복사', 1200);
+    } catch {
+      copy2.textContent = '복사 실패';
+      setTimeout(() => copy2.textContent = '결과 복사', 1200);
+    }
+  });
+
+  // 초기 렌더
+  updateSection1();
+  updateSection2();
 </script>
 </html>
