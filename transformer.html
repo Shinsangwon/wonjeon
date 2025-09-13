@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>간체/번체 + 구두점 변환기</title>
+
+<!-- OpenCC-JS -->
+<script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
+
+<style>
+  body { max-width: 880px; margin: 32px auto; padding: 0 16px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans CJK KR", "Apple SD Gothic Neo", sans-serif; }
+  h1 { font-size: 1.4rem; margin-bottom: .5rem; }
+  h2 { font-size: 1.2rem; margin-top: 2rem; }
+  .row { margin: 10px 0; }
+  textarea { width: 100%; min-height: 120px; box-sizing: border-box; padding: 10px; font-size: 1rem; }
+  select, button { font-size: 1rem; padding: 8px 10px; }
+  .hint { color: #666; font-size: .9rem; }
+  .out { background: #f7f7f8; border: 1px solid #ddd; }
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+</style>
+
+<h1>간체/번체 + 구두점 변환기</h1>
+<p class="hint">텍스트를 입력하면 선택한 변환 결과가 아래에 표시됩니다.</p>
+
+<!-- 섹션 1: 간체/번체 + 구두점 -->
+<h2>1. 간체/번체 변환 + 한국식 구두점</h2>
+<div class="row">
+  <label><strong>변환 모드:</strong></label>
+  <div class="toolbar">
+    <select id="mode">
+      <option value="cn>t">간체 → 번체(표준)</option>
+      <option value="t>cn">번체(표준) → 간체</option>
+      <option value="cn>tw">간체 → 번체(대만)</option>
+      <option value="cn>twp">간체 → 번체(대만·어휘)</option>
+      <option value="cn>hk">간체 → 번체(홍콩)</option>
+      <option value="tw>cn">번체(대만) → 간체</option>
+      <option value="hk>cn">번체(홍콩) → 간체</option>
+    </select>
+    <button id="clear1">지우기</button>
+    <button id="copy1">결과 복사</button>
+  </div>
+</div>
+<div class="row">
+  <label><strong>입력:</strong></label>
+  <textarea id="input1" placeholder="예: 你好，世界。发展头发？"></textarea>
+</div>
+<div class="row">
+  <label><strong>출력:</strong></label>
+  <textarea id="output1" class="out" readonly></textarea>
+</div>
+
+<!-- 섹션 2: 구두점 변환만 -->
+<h2>2. 구두점 변환만</h2>
+<div class="row">
+  <div class="toolbar">
+    <button id="clear2">지우기</button>
+    <button id="copy2">결과 복사</button>
+  </div>
+</div>
+<div class="row">
+  <label><strong>입력:</strong></label>
+  <textarea id="input2" placeholder="예: 你好，世界。发展头发？"></textarea>
+</div>
+<div class="row">
+  <label><strong>출력:</strong></label>
+  <textarea id="output2" class="out" readonly></textarea>
+</div>
+
+<script>
+  // ===== 공통 구두점 변환 규칙 =====
+  const punctMap = {
+    "。": ". ",
+    "，": ", ",
+    "？": "? ",
+    "！": "! ",
+    "：": ": ",
+    "；": "; ",
+    "（": "( ",
+    "）": ") ",
+    "【": "[ ",
+    "】": "] ",
+    "“": '"',
+    "”": '" ',
+    "‘": "'",
+    "’": "' ",
+    "、": ", ",
+    "∶": ": "
+  };
+
+  function convertPunctuation(text) {
+    return text.replace(/[。，？！：；（）【】“”‘’、∶]/g, m => punctMap[m] || m);
+  }
+
+  // ===== 섹션 1: 간체/번체 + 구두점 =====
+  const modeSelect = document.getElementById('mode');
+  const input1 = document.getElementById('input1');
+  const output1 = document.getElementById('output1');
+  const clear1 = document.getElementById('clear1');
+  const copy1 = document.getElementById('copy1');
+  let converter = null;
+
+  function parseMode(m) {
+    const [from, to] = m.split('>');
+    return { from, to };
+  }
+
+  function createConverter() {
+    const { from, to } = parseMode(modeSelect.value);
+    converter = OpenCC.Converter({ from, to });
+  }
+
+  function updateOutput1() {
+    if (!converter) createConverter();
+    const text = input1.value || '';
+    try {
+      let out = converter(text);
+      out = convertPunctuation(out);
+      output1.value = out;
+    } catch (e) {
+      output1.value = '[오류] ' + e;
+    }
+  }
+
+  modeSelect.addEventListener('change', () => { createConverter(); updateOutput1(); });
+  input1.addEventListener('input', updateOutput1);
+  clear1.addEventListener('click', () => { input1.value = ''; output1.value = ''; });
+  copy1.addEventListener('click', async () => {
+    await navigator.clipboard.writeText(output1.value);
+    copy1.textContent = '복사됨!';
+    setTimeout(() => copy1.textContent = '결과 복사', 1200);
+  });
+
+  createConverter();
+
+  // ===== 섹션 2: 구두점 변환만 =====
+  const input2 = document.getElementById('input2');
+  const output2 = document.getElementById('output2');
+  const clear2 = document.getElementById('clear2');
+  const copy2 = document.getElementById('copy2');
+
+  function updateOutput2() {
+    const text = input2.value || '';
+    output2.value = convertPunctuation(text);
+  }
+
+  input2.addEventListener('input', updateOutput2);
+  clear2.addEventListener('click', () => { input2.value = ''; output2.value = ''; });
+  copy2.addEventListener('click', async () => {
+    await navigator.clipboard.writeText(output2.value);
+    copy2.textContent = '복사됨!';
+    setTimeout(() => copy2.textContent = '결과 복사', 1200);
+  });
+</script>
+</html>
