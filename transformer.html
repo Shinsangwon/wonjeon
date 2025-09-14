@@ -41,8 +41,9 @@
     fill: #000;
   }
 
-  .diff { background: #ffcdd2; }
-  .stats { margin-top: 8px; font-size: .9rem; color: #333; }
+  /* 비교 강조 */
+  .diff { background: #ffcdd2; color: #c62828; font-weight: bold; }
+  .stats { margin-top: 8px; font-size: 1rem; color: #222; }
 </style>
 
 <h1>간체/번체 변환 · 구두점 변환 · 한문 배열 비교</h1>
@@ -115,11 +116,11 @@
 
 <div class="row">
   <label><strong>문장 A:</strong></label>
-  <textarea id="input3a" class="box" placeholder="예: 生死有命 富貴在天"></textarea>
+  <div id="input3a" class="editable box mono" contenteditable="true" spellcheck="false"></div>
 </div>
 <div class="row">
   <label><strong>문장 B:</strong></label>
-  <textarea id="input3b" class="box" placeholder="예: 死生有命 貴富在天"></textarea>
+  <div id="input3b" class="editable box mono" contenteditable="true" spellcheck="false"></div>
 </div>
 
 <div class="row">
@@ -128,7 +129,7 @@
 
 <div class="row" style="position: relative;">
   <label><strong>비교 결과:</strong></label>
-  <div id="output3" class="out box mono"></div>
+  <div id="output3" class="out box mono" style="font-size:1.2rem; line-height:1.8;"></div>
 </div>
 
 <script>
@@ -153,7 +154,7 @@
     }
     while(i<n){pushOp('delete',aArr[i]);i++;}
     while(j<m){pushOp('insert',bArr[j]);j++;}
-    return {ops, lcs:dp[0][0]};
+    return {ops,lcs:dp[0][0]};
     function pushOp(type,ch){const last=ops[ops.length-1];if(last&&last.type===type)last.chars.push(ch);else ops.push({type,chars:[ch]});}
   }
 
@@ -219,14 +220,33 @@
     catch{return (text.match(/[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g) || []);}
   }
 
-  function compareHanja(aText,bText){
+  function compareHanjaArrays(aArr,bArr){
+    const n=aArr.length,m=bArr.length;
+    const dp=Array.from({length:n+1},()=>Array(m+1).fill(0));
+    for(let i=n-1;i>=0;i--){
+      for(let j=m-1;j>=0;j--){
+        dp[i][j]=(aArr[i]===bArr[j])?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+      }
+    }
+    const ops=[];let i=0,j=0;
+    while(i<n && j<m){
+      if(aArr[i]===bArr[j]){pushOp('equal',aArr[i]);i++;j++;}
+      else if(dp[i+1][j]>=dp[i][j+1]){pushOp('delete',aArr[i]);i++;}
+      else {pushOp('insert',bArr[j]);j++;}
+    }
+    while(i<n){pushOp('delete',aArr[i]);i++;}
+    while(j<m){pushOp('insert',bArr[j]);j++;}
+    return {ops,lcs:dp[0][0]};
+    function pushOp(type,ch){const last=ops[ops.length-1];if(last&&last.type===type)last.chars.push(ch);else ops.push({type,chars:[ch]});}
+  }
+
+  function renderComparison(aText,bText){
     let aArr=extractHanja(aText), bArr=extractHanja(bText);
     if(ignoreVariants.checked){
       aArr=aArr.map(ch=>toCN(ch));
       bArr=bArr.map(ch=>toCN(ch));
     }
-    const n=aArr.length, m=bArr.length;
-    const {ops,lcs}=diffByLCS(aArr,bArr);
+    const {ops,lcs}=compareHanjaArrays(aArr,bArr);
 
     let resA='',resB='';
     for(const op of ops){
@@ -235,8 +255,8 @@
       else if(op.type==='insert'){resB+=`<span class="diff">${escapeHTML(op.chars.join(''))}</span>`;}
     }
 
-    const totalA=n,totalB=m;
-    const maxLen=Math.max(n,m)||1;
+    const totalA=aArr.length,totalB=bArr.length;
+    const maxLen=Math.max(totalA,totalB)||1;
     const sameRatio=(lcs/maxLen*100).toFixed(1);
     const diffCount=(totalA+totalB)-(2*lcs);
 
@@ -245,15 +265,22 @@
       동일률: ${sameRatio}% | 다른 글자 수: ${diffCount} | LCS 길이: ${lcs}
     </div>`;
 
-    return `<div><strong>A:</strong> ${resA}</div><div><strong>B:</strong> ${resB}</div>${stats}`;
+    return {resA,resB,stats};
   }
 
   function updateSection3(){
-    const a=input3a.value||'';const b=input3b.value||'';
-    output3.innerHTML=compareHanja(a,b);
+    const a=input3a.innerText||'';
+    const b=input3b.innerText||'';
+    const {resA,resB,stats}=renderComparison(a,b);
+    input3a.innerHTML=resA||''; // 입력창 A에 음영 반영
+    input3b.innerHTML=resB||''; // 입력창 B에 음영 반영
+    output3.innerHTML=`<div><strong>A:</strong> ${resA}</div><div><strong>B:</strong> ${resB}</div>${stats}`;
   }
-  input3a.addEventListener('input',updateSection3);
-  input3b.addEventListener('input',updateSection3);
-  ignoreVariants.addEventListener('change',updateSection3);
-</script>
-</html>
+
+  let composing=false;
+  [input3a,input3b].forEach(el=>{
+    el.addEventListener('compositionstart',()=>composing=true);
+    el.addEventListener('compositionend',()=>{composing=false;updateSection3();});
+    el.addEventListener('input',()=>{if(!composing)updateSection3();});
+  });
+ 
