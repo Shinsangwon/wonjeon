@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="ko">
+<head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>간체/번체 변환 · 구두점 변환 · 한문 배열 비교</title>
@@ -16,8 +17,8 @@
   .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .hint { color: #666; font-size: .9rem; margin-top: 4px; }
   .box { border: 1px solid #ddd; background: #fff; box-sizing: border-box; width: 100%; }
-  .editable, .out, textarea { min-height: 140px; padding: 10px; font-size: 1rem; line-height: 1.6; width: 100%; }
-  .editable { outline: none; white-space: pre-wrap; }
+  textarea, .out { min-height: 140px; padding: 10px; font-size: 1rem; line-height: 1.6; width: 100%; }
+
   .out { background: #f7f7f8; white-space: pre-wrap; overflow-x: auto; position: relative; }
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
   .changed { background: #fff59d; }
@@ -74,7 +75,8 @@
     pointer-events: none;
   }
 </style>
-
+</head>
+<body>
 <h1>간체/번체 변환 · 구두점 변환 · 한문 배열 비교</h1>
 
 <!-- 섹션 1: 간체/번체 변환 -->
@@ -97,7 +99,7 @@
 
 <div class="row">
   <label><strong>입력:</strong></label>
-  <div id="input1" class="editable box mono" contenteditable="true" spellcheck="false"></div>
+  <textarea id="input1" class="box mono" placeholder="예: 发展头发？"></textarea>
   <div id="count1" class="hint"></div>
 </div>
 
@@ -166,9 +168,9 @@
 </div>
 
 <script>
+document.addEventListener("DOMContentLoaded", () => {
   /* === 공통 유틸 === */
-  function escapeHTML(str){return str.replaceAll(/&/g,"&amp;").replaceAll(/</g,"&lt;").replaceAll(/>/g,"&gt;");}
-  function getEditableText(el){return (el.innerText||"").replace(/\u00A0/g,"");}
+  function escapeHTML(str){return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
   function countHanja(text){try{const re=/\p{Script=Han}/gu;return (text.match(re)||[]).length;}catch{const re2=/[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g;return (text.match(re2)||[]).length;}}
 
   function diffByLCS(aArr,bArr){
@@ -181,26 +183,13 @@
     }
     const ops=[];let i=0,j=0;
     while(i<n && j<m){
-      if(aArr[i]===bArr[j]){pushOp('equal',aArr[i]);i++;j++;}
-      else if(dp[i+1][j]>=dp[i][j+1]){pushOp('delete',aArr[i]);i++;}
-      else {pushOp('insert',bArr[j]);j++;}
+      if(aArr[i]===bArr[j]){ops.push({type:'equal',chars:[aArr[i]]});i++;j++;}
+      else if(dp[i+1][j]>=dp[i][j+1]){ops.push({type:'delete',chars:[aArr[i]]});i++;}
+      else {ops.push({type:'insert',chars:[bArr[j]]});j++;}
     }
-    while(i<n){pushOp('delete',aArr[i]);i++;}
-    while(j<m){pushOp('insert',bArr[j]);j++;}
+    while(i<n){ops.push({type:'delete',chars:[aArr[i]]});i++;}
+    while(j<m){ops.push({type:'insert',chars:[bArr[j]]});j++;}
     return {ops,lcs:dp[0][0]};
-    function pushOp(type,ch){const last=ops[ops.length-1];if(last&&last.type===type)last.chars.push(ch);else ops.push({type,chars:[ch]});}
-  }
-
-  function renderHighlightedHTML(original,converted){
-    const a=Array.from(original),b=Array.from(converted);
-    const {ops}=diffByLCS(a,b);
-    let inputHTML='',outputHTML='';
-    for(const op of ops){
-      if(op.type==='equal'){const s=escapeHTML(op.chars.join(''));inputHTML+=s;outputHTML+=s;}
-      else if(op.type==='delete'){inputHTML+=`<span class="will-change">${escapeHTML(op.chars.join(''))}</span>`;}
-      else if(op.type==='insert'){outputHTML+=`<span class="changed">${escapeHTML(op.chars.join(''))}</span>`;}
-    }
-    return {inputHTML,outputHTML};
   }
 
   /* === 1) 간/번체 변환 === */
@@ -216,19 +205,15 @@
   function createConverter(){const {from,to}=parseMode(modeSelect.value);converter=OpenCC.Converter({from,to});}
   function updateSection1(){
     if(!converter)createConverter();
-    const original=getEditableText(input1);
+    const original=input1.value||'';
     let converted='';
     try{converted=converter(original);}catch(e){output1.innerHTML=`<span>[오류] ${escapeHTML(String(e))}</span>`;return;}
-    const {inputHTML,outputHTML}=renderHighlightedHTML(original,converted);
-    input1.innerHTML=inputHTML||'';output1.innerHTML=outputHTML||'';
+    output1.innerText=converted;
     count1.textContent=`한자 개수(입력 기준): ${countHanja(original)}`;
   }
   modeSelect.addEventListener('change',()=>{createConverter();updateSection1();});
-  let composing=false;
-  input1.addEventListener('compositionstart',()=>composing=true);
-  input1.addEventListener('compositionend',()=>{composing=false;updateSection1();});
-  input1.addEventListener('input',()=>{if(!composing)updateSection1();});
-  clear1.addEventListener('click',()=>{input1.innerHTML='';output1.innerHTML='';count1.textContent='';});
+  input1.addEventListener('input',updateSection1);
+  clear1.addEventListener('click',()=>{input1.value='';output1.innerHTML='';count1.textContent='';});
   copy1.addEventListener('click',async()=>{await navigator.clipboard.writeText(output1.innerText||'');});
   createConverter();
 
@@ -255,33 +240,13 @@
     catch{return (text.match(/[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g) || []);}
   }
 
-  function compareHanjaArrays(aArr,bArr){
-    const n=aArr.length,m=bArr.length;
-    const dp=Array.from({length:n+1},()=>Array(m+1).fill(0));
-    for(let i=n-1;i>=0;i--){
-      for(let j=m-1;j>=0;j--){
-        dp[i][j]=(aArr[i]===bArr[j])?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
-      }
-    }
-    const ops=[];let i=0,j=0;
-    while(i<n && j<m){
-      if(aArr[i]===bArr[j]){pushOp('equal',aArr[i]);i++;j++;}
-      else if(dp[i+1][j]>=dp[i][j+1]){pushOp('delete',aArr[i]);i++;}
-      else {pushOp('insert',bArr[j]);j++;}
-    }
-    while(i<n){pushOp('delete',aArr[i]);i++;}
-    while(j<m){pushOp('insert',bArr[j]);j++;}
-    return {ops,lcs:dp[0][0]};
-    function pushOp(type,ch){const last=ops[ops.length-1];if(last&&last.type===type)last.chars.push(ch);else ops.push({type,chars:[ch]});}
-  }
-
   function renderComparison(aText,bText){
     let aArr=extractHanja(aText), bArr=extractHanja(bText);
     if(ignoreVariants.checked){
       aArr=aArr.map(ch=>toCN(ch));
       bArr=bArr.map(ch=>toCN(ch));
     }
-    const {ops,lcs}=compareHanjaArrays(aArr,bArr);
+    const {ops,lcs}=diffByLCS(aArr,bArr);
 
     let resA='',resB='';
     for(const op of ops){
@@ -292,4 +257,31 @@
 
     const totalA=aArr.length,totalB=bArr.length;
     const maxLen=Math.max(totalA,totalB)||1;
-    const sameRatio=(lcs/max
+    const sameRatio=(lcs/maxLen*100).toFixed(1);
+    const diffCount=(totalA+totalB)-(2*lcs);
+
+    const stats=`<div class="stats">
+      문장 A 한자 수: ${totalA} | 문장 B 한자 수: ${totalB}<br>
+      동일률: ${sameRatio}% | 다른 글자 수: ${diffCount} | LCS 길이: ${lcs}
+    </div>`;
+
+    return {resA,resB,stats};
+  }
+
+  function updateSection3(){
+    const a=input3a.value||'';
+    const b=input3b.value||'';
+    const {resA,resB,stats}=renderComparison(a,b);
+    mirror3a.innerHTML=resA||'';
+    mirror3b.innerHTML=resB||'';
+    output3.innerHTML=`<div><strong>A:</strong> ${resA}</div><div><strong>B:</strong> ${resB}</div>${stats}`;
+  }
+
+  [input3a,input3b,ignoreVariants].forEach(el=>{
+    el.addEventListener('input',updateSection3);
+    el.addEventListener('change',updateSection3);
+  });
+});
+</script>
+</body>
+</html>
