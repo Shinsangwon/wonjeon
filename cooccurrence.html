@@ -119,7 +119,10 @@
     </div>
     <label>추가 검색어 (결과 내 검색)</label>
     <input type="text" id="refineTerm" placeholder="예: 君子">
-    <button class="secondary" id="refineBtn" disabled>결과 내 검색</button>
+    <div class="btnbar">
+      <button class="secondary" id="refineBtn" disabled>결과 내 검색</button>
+      <button class="ghost" id="resetRefineBtn" style="display:none">원래 결과로 복귀</button>
+    </div>
   </section>
 
   <!-- 오른쪽: 결과 -->
@@ -159,6 +162,7 @@
   const exportBtn = $("#exportBtn");
   const refineTerm = $("#refineTerm");
   const refineBtn = $("#refineBtn");
+  const resetRefineBtn = $("#resetRefineBtn");
   const statsBox = $("#stats");
   const resultsBox = $("#results");
   const fullTextWrap = $("#fullTextWrap");
@@ -166,7 +170,7 @@
 
   let lastSearchState = null;
 
-  // 간↔번 간단 매핑 (예시, 확장 가능)
+  // 간↔번 간단 매핑
   const simpToTrad = {"汉":"漢","医":"醫","国":"國","气":"氣","马":"馬","东":"東","书":"書"};
   const tradToSimp = {}; for(const k in simpToTrad){ tradToSimp[simpToTrad[k]]=k; }
 
@@ -191,7 +195,7 @@
       const res = await fetch(url);
       const html = await res.text();
       const body = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi,"").replace(/<style[^>]*>[\s\S]*?<\/style>/gi,"");
-      textInput.value = body.replace(/<[^>]+>/g,""); // 태그 제거
+      textInput.value = body.replace(/<[^>]+>/g,"");
     }catch(e){
       alert("불러오기 실패: CORS 차단일 수 있습니다.");
     }
@@ -201,7 +205,7 @@
     textInput.value = ""; termA.value = ""; termB.value = "";
     resultsBox.innerHTML = ""; statsBox.style.display = "none";
     fullTextWrap.style.display = "none"; showFullBtn.disabled = true; exportBtn.disabled = true;
-    lastSearchState = null; refineBtn.disabled = true;
+    lastSearchState = null; refineBtn.disabled = true; resetRefineBtn.style.display="none";
   });
 
   runBtn.addEventListener("click", () => {
@@ -217,6 +221,15 @@
       return snippet.includes(term);
     });
     renderResults(filtered);
+    lastSearchState.filteredPairs = filtered;
+    resetRefineBtn.style.display = "inline-block";
+  });
+
+  resetRefineBtn.addEventListener("click", () => {
+    if(!lastSearchState) return;
+    renderResults(lastSearchState.mappedPairs);
+    lastSearchState.filteredPairs = null;
+    resetRefineBtn.style.display = "none";
   });
 
   function searchAndRender(){
@@ -257,11 +270,8 @@
         {start:aStartOrig, end:aEndOrig, cls:"t1"},
         {start:bStartOrig, end:bEndOrig, cls:"t2"},
       ]);
-      return {
-        index: idx + 1, aStartNorm: p.aStart, bStartNorm: p.bStart,
-        gap: p.gap, snippetHtml: snippetInfo.html,
-        anchorAtOrig: left
-      };
+      return { index: idx + 1, aStartNorm: p.aStart, bStartNorm: p.bStart,
+        gap: p.gap, snippetHtml: snippetInfo.html, anchorAtOrig: left };
     });
 
     renderStats({raw, a, b, na, nb, occA, occB, pairs});
@@ -271,6 +281,7 @@
     showFullBtn.disabled = false;
     exportBtn.disabled = mappedPairs.length === 0;
     refineBtn.disabled = mappedPairs.length === 0;
+    resetRefineBtn.style.display="none";
     fullTextWrap.style.display = "none";
   }
 
@@ -341,36 +352,4 @@
     for(const r of sorted){
       html=html.slice(0,r.start)+"<mark class='"+r.cls+"'>"+html.slice(r.start,r.end+1)+"</mark>"+html.slice(r.end+1);
     }
-    return html;
-  }
-
-  function renderStats({raw,a,b,na,nb,occA,occB,pairs}){
-    statsBox.style.display="flex";
-    statsBox.innerHTML=`
-      <span class="chip">A: ${escapeHtml(a)} (${na.length})</span>
-      <span class="chip">B: ${escapeHtml(b)} (${nb.length})</span>
-      <span class="chip">A 발생 ${occA.length}회</span>
-      <span class="chip">B 발생 ${occB.length}회</span>
-      <span class="chip">동시출현 ${pairs.length}쌍</span>
-      <span class="chip">텍스트 길이 ${raw.length}자</span>`;
-  }
-
-  function renderResults(items){
-    resultsBox.innerHTML="";
-    if(items.length==0){resultsBox.innerHTML="<div class='muted'>결과 없음</div>"; return;}
-    items.forEach(r=>{
-      const div=document.createElement("div");
-      div.className="result";
-      div.innerHTML=`<h4>#${r.index} · 간격 ${r.gap}자</h4><p>${r.snippetHtml}</p>`;
-      resultsBox.appendChild(div);
-    });
-  }
-
-  function stripHtml(html){
-    const tmp=document.createElement("div"); tmp.innerHTML=html; return tmp.textContent||"";
-  }
-
-})();
-</script>
-</body>
-</html>
+   
