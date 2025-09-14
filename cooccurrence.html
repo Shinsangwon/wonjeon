@@ -12,7 +12,7 @@
   }
   *{box-sizing:border-box}
   body{
-    margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", sans-serif;
+    margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
     background:var(--bg); color:var(--ink); line-height:1.55;
   }
   header{padding:24px}
@@ -21,7 +21,7 @@
   .wrap{display:grid; grid-template-columns: 340px 1fr; gap:16px; padding:16px}
   .panel{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px}
   label{display:block; font-size:13px; color:var(--muted); margin:12px 0 6px}
-  input[type="text"], input[type="number"], textarea{
+  input[type="text"], input[type="url"], input[type="number"], textarea{
     width:100%; background:#0e121a; color:var(--ink); border:1px solid var(--border);
     border-radius:10px; padding:10px 12px; font-size:14px; outline:none;
   }
@@ -56,18 +56,20 @@
 <body>
 <header>
   <h1>문자열 동시 출현 검색기 · 거리기반</h1>
-  <p>두 문자열 A/B가 <strong>N</strong> 글자 이내(정규화된 텍스트 기준)에서 함께 쓰인 구간을 찾아 하이라이트합니다.</p>
+  <p>두 문자열 A/B가 <strong>N</strong> 글자 이내에서 함께 쓰인 구간을 찾아 하이라이트합니다.</p>
 </header>
 
 <div class="wrap">
   <!-- 왼쪽: 입력/설정 -->
   <section class="panel">
     <label>텍스트 붙여넣기</label>
-    <textarea id="textInput" placeholder="여기에 한문/한글/영문 등 텍스트를 붙여넣으세요."></textarea>
+    <textarea id="textInput" placeholder="여기에 텍스트를 붙여넣으세요."></textarea>
 
     <div class="btnbar">
       <input type="file" id="fileInput" accept=".txt,.csv,.tsv,.md,.json,.html,.htm" />
       <button class="ghost" id="loadFileBtn">파일 불러오기</button>
+      <input type="url" id="urlInput" placeholder="http:// 또는 https:// 주소 입력" />
+      <button class="ghost" id="loadUrlBtn">URL 불러오기</button>
       <button class="secondary" id="clearBtn">초기화</button>
     </div>
 
@@ -96,23 +98,28 @@
     <div class="row">
       <div class="chk">
         <input type="checkbox" id="ignoreSpaces" checked>
-        <label for="ignoreSpaces">공백(스페이스/줄바꿈/전각 공백) 무시</label>
+        <label for="ignoreSpaces">공백 무시</label>
       </div>
       <div class="chk">
         <input type="checkbox" id="ignorePunct" checked>
-        <label for="ignorePunct">문장부호 무시(.,，、。：「」『』（）等)</label>
+        <label for="ignorePunct">문장부호 무시</label>
+      </div>
+    </div>
+    <div class="row">
+      <div class="chk">
+        <input type="checkbox" id="ignoreTradSimpl">
+        <label for="ignoreTradSimpl">간번체 차이 무시</label>
       </div>
     </div>
 
     <div class="btnbar">
       <button id="runBtn">검색 실행</button>
       <button class="ghost" id="showFullBtn" disabled>전체 텍스트 보기</button>
-      <button class="ghost" id="exportBtn" disabled>CSV로 내보내기</button>
+      <button class="ghost" id="exportBtn" disabled>CSV 내보내기</button>
     </div>
-    <p class="muted" style="margin-top:8px">
-      ※ “문자 수”는 선택한 정규화(공백/문장부호 제거) **적용 후** 텍스트 기준으로 계산됩니다. <br/>
-      (거리 정의: 두 구간이 겹치면 0, 떨어져 있으면 두 구간 사이의 문자 수)
-    </p>
+    <label>추가 검색어 (결과 내 검색)</label>
+    <input type="text" id="refineTerm" placeholder="예: 君子">
+    <button class="secondary" id="refineBtn" disabled>결과 내 검색</button>
   </section>
 
   <!-- 오른쪽: 결과 -->
@@ -127,8 +134,7 @@
 </div>
 
 <div class="footer">
-  거리 판정은 정규화된 텍스트 상의 인덱스/길이로 수행하고, 표시되는 스니펫은 원문 인덱스로 매핑하여 하이라이트합니다.
-  대용량 텍스트에서 최초 렌더링이 약간 느릴 수 있습니다.
+  ※ URL 불러오기는 CORS 차단 사이트에서는 동작하지 않을 수 있습니다.  
 </div>
 
 <script>
@@ -138,6 +144,8 @@
   const textInput = $("#textInput");
   const fileInput = $("#fileInput");
   const loadFileBtn = $("#loadFileBtn");
+  const loadUrlBtn = $("#loadUrlBtn");
+  const urlInput = $("#urlInput");
   const clearBtn = $("#clearBtn");
   const termA = $("#termA");
   const termB = $("#termB");
@@ -145,15 +153,28 @@
   const ctx = $("#ctx");
   const ignoreSpaces = $("#ignoreSpaces");
   const ignorePunct = $("#ignorePunct");
+  const ignoreTradSimpl = $("#ignoreTradSimpl");
   const runBtn = $("#runBtn");
   const showFullBtn = $("#showFullBtn");
   const exportBtn = $("#exportBtn");
+  const refineTerm = $("#refineTerm");
+  const refineBtn = $("#refineBtn");
   const statsBox = $("#stats");
   const resultsBox = $("#results");
   const fullTextWrap = $("#fullTextWrap");
   const fullText = $("#fullText");
 
-  let lastSearchState = null; // 결과/매핑 보관 (CSV, 전체보기용)
+  let lastSearchState = null;
+
+  // 간↔번 간단 매핑 (예시, 확장 가능)
+  const simpToTrad = {"汉":"漢","医":"醫","国":"國","气":"氣","马":"馬","东":"東","书":"書"};
+  const tradToSimp = {}; for(const k in simpToTrad){ tradToSimp[simpToTrad[k]]=k; }
+
+  function convertTradSimpl(ch){
+    if(simpToTrad[ch]) return simpToTrad[ch];
+    if(tradToSimp[ch]) return tradToSimp[ch];
+    return ch;
+  }
 
   loadFileBtn.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", async (e) => {
@@ -163,14 +184,42 @@
     textInput.value = txt;
   });
 
+  loadUrlBtn.addEventListener("click", async ()=>{
+    const url = urlInput.value.trim();
+    if(!url){ alert("URL을 입력하세요."); return; }
+    try{
+      const res = await fetch(url);
+      const html = await res.text();
+      const body = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi,"").replace(/<style[^>]*>[\s\S]*?<\/style>/gi,"");
+      textInput.value = body.replace(/<[^>]+>/g,""); // 태그 제거
+    }catch(e){
+      alert("불러오기 실패: CORS 차단일 수 있습니다.");
+    }
+  });
+
   clearBtn.addEventListener("click", () => {
     textInput.value = ""; termA.value = ""; termB.value = "";
     resultsBox.innerHTML = ""; statsBox.style.display = "none";
     fullTextWrap.style.display = "none"; showFullBtn.disabled = true; exportBtn.disabled = true;
-    lastSearchState = null;
+    lastSearchState = null; refineBtn.disabled = true;
   });
 
   runBtn.addEventListener("click", () => {
+    searchAndRender();
+  });
+
+  refineBtn.addEventListener("click", () => {
+    if(!lastSearchState) return;
+    const term = refineTerm.value.trim();
+    if(!term){ alert("추가 검색어를 입력하세요."); return; }
+    const filtered = lastSearchState.mappedPairs.filter(p=>{
+      const snippet = stripHtml(p.snippetHtml);
+      return snippet.includes(term);
+    });
+    renderResults(filtered);
+  });
+
+  function searchAndRender(){
     const raw = textInput.value || "";
     const a = termA.value || "";
     const b = termB.value || "";
@@ -182,25 +231,19 @@
 
     const options = {
       ignoreSpaces: ignoreSpaces.checked,
-      ignorePunct: ignorePunct.checked
+      ignorePunct: ignorePunct.checked,
+      ignoreTradSimpl: ignoreTradSimpl.checked
     };
 
     const norm = normalizeWithMap(raw, options);
     const na = normalizeTerm(a, options);
     const nb = normalizeTerm(b, options);
 
-    if(na.length === 0 || nb.length === 0){
-      alert("정규화 결과 검색어 길이가 0이 되었습니다. 옵션을 조정해 주세요.");
-      return;
-    }
-
     const occA = findAllOccurrences(norm.normStr, na);
     const occB = findAllOccurrences(norm.normStr, nb);
 
-    // 매칭: 간격 ≤ N 인 쌍
-    const pairs = matchPairsWithinGap(occA, occB, N);
+    const pairs = matchPairsWithinGap(occA, occB, N, na.length, nb.length);
 
-    // 표시 및 하이라이트용으로 원문 인덱스로 매핑
     const mappedPairs = pairs.map((p, idx) => {
       const aStartOrig = norm.normToOrig[p.aStart];
       const aEndOrig   = norm.normToOrig[p.aStart + na.length - 1];
@@ -215,14 +258,9 @@
         {start:bStartOrig, end:bEndOrig, cls:"t2"},
       ]);
       return {
-        index: idx + 1,
-        aStartNorm: p.aStart, aEndNorm: p.aStart + na.length - 1,
-        bStartNorm: p.bStart, bEndNorm: p.bStart + nb.length - 1,
-        gap: p.gap,
-        aStartOrig, aEndOrig, bStartOrig, bEndOrig,
-        contextStartOrig: c0, contextEndOrig: c1,
-        snippetHtml: snippetInfo.html,
-        anchorAtOrig: left // 앵커를 왼쪽 구간 시작에 설치
+        index: idx + 1, aStartNorm: p.aStart, bStartNorm: p.bStart,
+        gap: p.gap, snippetHtml: snippetInfo.html,
+        anchorAtOrig: left
       };
     });
 
@@ -232,311 +270,106 @@
     lastSearchState = { raw, a, b, na, nb, options, mappedPairs };
     showFullBtn.disabled = false;
     exportBtn.disabled = mappedPairs.length === 0;
+    refineBtn.disabled = mappedPairs.length === 0;
     fullTextWrap.style.display = "none";
-  });
-
-  showFullBtn.addEventListener("click", () => {
-    if(!lastSearchState) return;
-    const { raw, na, nb, a, b, options, mappedPairs } = lastSearchState;
-
-    // 전체 텍스트 하이라이트: 모든 A/B 발생 지점에 mark (정규화→원문 매핑 사용)
-    const norm = normalizeWithMap(raw, options);
-    const occA = findAllOccurrences(norm.normStr, na).map(s => ({
-      start: norm.normToOrig[s], end: norm.normToOrig[s + na.length - 1], cls: "t1"
-    }));
-    const occB = findAllOccurrences(norm.normStr, nb).map(s => ({
-      start: norm.normToOrig[s], end: norm.normToOrig[s + nb.length - 1], cls: "t2"
-    }));
-
-    // 결과쌍 기준 앵커 삽입 위치(겹치더라도 왼쪽 시작에만)
-    const anchors = mappedPairs.map((p,i)=>({ pos: p.anchorAtOrig, id: `hit-${i+1}` }));
-    const html = decorateWholeText(raw, [...occA, ...occB], anchors);
-    fullText.innerHTML = html;
-    fullTextWrap.style.display = "block";
-    // 첫 결과로 스크롤
-    if(mappedPairs.length){
-      document.getElementById(`hit-1`)?.scrollIntoView({behavior:"smooth", block:"center"});
-    }
-  });
-
-  exportBtn.addEventListener("click", () => {
-    if(!lastSearchState) return;
-    const { mappedPairs, a, b } = lastSearchState;
-    if(!mappedPairs.length){ alert("내보낼 결과가 없습니다."); return; }
-
-    const header = [
-      "pair_index","termA","termB",
-      "a_start_norm","a_end_norm","b_start_norm","b_end_norm",
-      "gap_chars",
-      "a_start_orig","a_end_orig","b_start_orig","b_end_orig",
-      "context_start_orig","context_end_orig","context"
-    ];
-    const rows = mappedPairs.map(p => [
-      p.index, csvEscape(a), csvEscape(b),
-      p.aStartNorm, p.aEndNorm, p.bStartNorm, p.bEndNorm,
-      p.gap,
-      p.aStartOrig, p.aEndOrig, p.bStartOrig, p.bEndOrig,
-      p.contextStartOrig, p.contextEndOrig,
-      csvEscape(stripHtml(p.snippetHtml))
-    ]);
-    const csv = toCSV([header, ...rows]);
-    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
-    const url = URL.createObjectURL(blob);
-    const aTag = document.createElement("a");
-    aTag.href = url;
-    aTag.download = "cooccurrence_results.csv";
-    document.body.appendChild(aTag);
-    aTag.click();
-    aTag.remove();
-    URL.revokeObjectURL(url);
-  });
-
-  // ------ 유틸/핵심 로직 ------
-
-  function supportsUnicodePropertyEscapes(){
-    try{ new RegExp("\\p{P}", "u"); return true; } catch(e){ return false; }
   }
-  const PUNCT_FALLBACK = /[.,;:!?'"`~\-–—_()[\]{}<>\/\\|@#$%^&*+=，、。．？！：；「」『』（）〔〕《》〈〉【】—…·・＂＇．､｡､]/g;
+
+  // ===== 유틸 =====
+  const PUNCT_FALLBACK = /[.,;:!?'"`~\-–—_()[\]{}<>\/\\|@#$%^&*+=，、。．？！：；「」『』（）《》〈〉【】—…·・＂＇．､｡､]/g;
   const SPACE_REGEX = /[\s\u3000]/g;
 
-  function normalizeWithMap(str, opt){
-    const useU = supportsUnicodePropertyEscapes();
-    const isPunct = ch => {
-      if(opt.ignorePunct){
-        if(useU){ return /\p{P}|\p{S}/u.test(ch) || /[，、。？！：；「」『』（）《》〈〉【】—…·・]/.test(ch); }
-        return PUNCT_FALLBACK.test(ch);
-      }
-      return false;
-    };
-    const isSpace = ch => opt.ignoreSpaces && SPACE_REGEX.test(ch);
-
-    let norm = "";
-    const map = [];
-    for(let i=0; i<str.length; i++){
-      const ch = str[i];
-      // reset lastIndex for global regexes
-      PUNCT_FALLBACK.lastIndex = 0;
-      SPACE_REGEX.lastIndex = 0;
-      if(isSpace(ch) || isPunct(ch)) continue;
-      norm += ch;
-      map.push(i);
+  function normalizeWithMap(str,opt){
+    let norm = "", map = [];
+    for(let i=0;i<str.length;i++){
+      let ch = str[i];
+      PUNCT_FALLBACK.lastIndex=0; SPACE_REGEX.lastIndex=0;
+      if(opt.ignoreSpaces && SPACE_REGEX.test(ch)) continue;
+      if(opt.ignorePunct && PUNCT_FALLBACK.test(ch)) continue;
+      if(opt.ignoreTradSimpl) ch = convertTradSimpl(ch);
+      norm += ch; map.push(i);
     }
-    return { normStr: norm, normToOrig: map };
+    return {normStr:norm,normToOrig:map};
   }
 
-  function normalizeTerm(term, opt){
-    let t = term;
-    if(opt.ignoreSpaces) t = t.replace(SPACE_REGEX, "");
-    if(opt.ignorePunct){
-      if(supportsUnicodePropertyEscapes()){
-        t = t.replace(/[\p{P}\p{S}，、。？！：；「」『』（）《》〈〉【】—…·・]/gu, "");
-      } else {
-        t = t.replace(PUNCT_FALLBACK, "");
-      }
-    }
+  function normalizeTerm(term,opt){
+    let t=term;
+    if(opt.ignoreSpaces) t=t.replace(SPACE_REGEX,"");
+    if(opt.ignorePunct) t=t.replace(PUNCT_FALLBACK,"");
+    if(opt.ignoreTradSimpl) t=[...t].map(convertTradSimpl).join("");
     return t;
   }
 
-  function findAllOccurrences(text, pattern){
-    // 모든 발생(겹침 포함) 시작 인덱스 반환
-    const out = [];
-    if(!pattern.length) return out;
-    let i = 0;
-    while(true){
-      const idx = text.indexOf(pattern, i);
-      if(idx === -1) break;
-      out.push(idx);
-      i = idx + 1; // 겹침 허용
-    }
+  function findAllOccurrences(text,pat){
+    const out=[]; let i=0;
+    while(true){ const idx=text.indexOf(pat,i); if(idx==-1) break; out.push(idx); i=idx+1; }
     return out;
   }
 
-  function matchPairsWithinGap(occA, occB, N){
-    // occA/occB: 시작 인덱스 배열(정규화 기준)
-    // 결과: {aStart, bStart, gap}
-    const res = [];
-    const lenA = (s)=>s; // placeholder
-    // Two-pointer windowing
-    let jStart = 0;
-    for(let i=0; i<occA.length; i++){
-      const aStart = occA[i];
-      // B 시작 인덱스가 너무 왼쪽(허용범위보다 더 왼쪽)인 것은 스킵
-      while(jStart < occB.length && (occB[jStart] + 0) < (aStart - (N + 1))) jStart++;
-
-      for(let j=jStart; j<occB.length; j++){
-        const bStart = occB[j];
-        // B가 너무 오른쪽으로 벗어나면 중단
-        if(bStart > aStart + N + Math.max(0, 1)) {
-          // 하지만 엄밀한 gap 판정 위해 break 조건을 완화할 수 있으나,
-          // 아래 정확 gap 계산이 있으므로 충분히 좁은 창에서만 확인
-        }
-        // 정확한 gap 계산 (패턴 길이 고려)
-        // 여기선 시작 인덱스만 알고 있어 패턴 길이가 필요 → 아래에서 채움
-        // 이 함수 호출 전에 패턴 길이를 클로저로 보관하는 식으로 재작성
+  function matchPairsWithinGap(occA,occB,N,lenA,lenB){
+    const res=[]; let j=0;
+    for(let i=0;i<occA.length;i++){
+      const aS=occA[i], aE=aS+lenA-1;
+      while(j<occB.length && occB[j]+lenB-1<aS-N) j++;
+      for(let k=j;k<occB.length;k++){
+        const bS=occB[k], bE=bS+lenB-1;
+        if(bS>aE+N) break;
+        const gap=intervalGap(aS,aE,bS,bE);
+        if(gap<=N) res.push({aStart:aS,bStart:bS,gap});
       }
     }
-    // 위 로직을 명확히 하기 위해 패턴 길이를 함께 받도록 재구성
-    return res; // placeholder (실제 구현은 아래 재정의)
+    return res;
   }
 
-  // 위 함수를 패턴 길이까지 포함해 재정의
-  function matchPairsWithinGap(occA, occB, N, lenA, lenB){
-    // 실제 재정의: 아래에서 덮어쓰므로 경고 제거용
-    return [];
-  }
-  // 실제 구현 (함수 호이스팅 회피용 즉시 재정의)
-  {
-    const _real = function(occA, occB, N, lenA, lenB){
-      // 윈도우 기법: 각 A에 대해 B의 유효 범위만 검사
-      const res = [];
-      let jLeft = 0;
-      for(let i=0; i<occA.length; i++){
-        const aS = occA[i], aE = aS + lenA - 1;
-
-        // 왼쪽에서 너무 멀리 떨어진 B는 제거 (B가 A의 왼쪽에 있고 gap > N)
-        while(jLeft < occB.length){
-          const bS = occB[jLeft], bE = bS + lenB - 1;
-          const gap = intervalGap(aS, aE, bS, bE);
-          if(gap > N && bE < aS) jLeft++; else break;
-        }
-
-        // 오른쪽으로 가능한 B들을 훑되, 시작이 A의 끝 + N + 1 보다 커지면 중단
-        for(let j=jLeft; j<occB.length; j++){
-          const bS = occB[j], bE = bS + lenB - 1;
-          if(bS > aE + N + 1) break;
-          const gap = intervalGap(aS, aE, bS, bE);
-          if(gap <= N){
-            res.push({ aStart:aS, bStart:bS, gap });
-          }
-        }
-      }
-      return res;
-    };
-    // 덮어쓰기
-    matchPairsWithinGap = (occA, occB, N) => {
-      // lenA/lenB는 외부에서 알 수 있으므로 클로저로 전달
-      const lenA = normalizeTerm(termA.value || "", {ignoreSpaces: ignoreSpaces.checked, ignorePunct: ignorePunct.checked}).length || 1;
-      const lenB = normalizeTerm(termB.value || "", {ignoreSpaces: ignoreSpaces.checked, ignorePunct: ignorePunct.checked}).length || 1;
-      return _real(occA, occB, N, lenA, lenB);
-    };
-  }
-
-  function intervalGap(aS, aE, bS, bE){
-    if(aS <= bE && bS <= aE) return 0; // overlap
-    if(aE < bS) return bS - aE - 1;
-    if(bE < aS) return aS - bE - 1;
+  function intervalGap(aS,aE,bS,bE){
+    if(aS<=bE && bS<=aE) return 0;
+    if(aE<bS) return bS-aE-1;
+    if(bE<aS) return aS-bE-1;
     return 0;
   }
 
-  function escapeHtml(s){
-    return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  function escapeHtml(s){return s.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+
+  function makeSnippet(raw,start,end,ranges){
+    const slice=raw.slice(start,end+1);
+    const localRanges=ranges.map(r=>({start:r.start-start,end:r.end-start,cls:r.cls})).filter(r=>r.start>=0&&r.end<=slice.length);
+    return {html:decorateRanges(escapeHtml(slice),localRanges)};
   }
 
-  function makeSnippet(raw, start, end, ranges){
-    // ranges: [{start,end,cls}]
-    const slice = raw.slice(start, end+1);
-    const escaped = escapeHtml(slice);
-    // 슬라이스 기준 오프셋으로 변환
-    const localRanges = ranges.map(r => ({
-      start: Math.max(0, r.start - start),
-      end  : Math.min(end - start, r.end - start),
-      cls  : r.cls
-    })).filter(r => r.start <= r.end);
-    const html = decorateRanges(escaped, localRanges);
-    return { html };
-  }
-
-  function decorateRanges(textHtml, ranges){
-    // ranges를 start 내림차순으로 정렬한 뒤, <mark> 삽입
-    const sorted = [...ranges].sort((x,y)=> y.start - x.start || y.end - x.end);
-    let html = textHtml;
+  function decorateRanges(textHtml,ranges){
+    const sorted=[...ranges].sort((x,y)=>y.start-x.start);
+    let html=textHtml;
     for(const r of sorted){
-      const before = html.slice(0, r.start);
-      const mid    = html.slice(r.start, r.end + 1);
-      const after  = html.slice(r.end + 1);
-      html = `${before}<mark class="${r.cls}">${mid}</mark>${after}`;
+      html=html.slice(0,r.start)+"<mark class='"+r.cls+"'>"+html.slice(r.start,r.end+1)+"</mark>"+html.slice(r.end+1);
     }
     return html;
   }
 
-  function decorateWholeText(raw, spans, anchors){
-    // spans: [{start,end,cls}], anchors: [{pos,id}]
-    // 삽입 위치 충돌 방지 위해 하나의 "편집 명령" 리스트로 모은 뒤 뒤에서 앞으로 적용
-    const ops = [];
-    for(const s of spans){
-      ops.push({ pos: s.start, type:"open", html:`<mark class="${s.cls}">` });
-      ops.push({ pos: s.end + 1, type:"close", html:`</mark>` });
-    }
-    for(const a of anchors){
-      ops.push({ pos: a.pos, type:"anchor", html:`<span id="${a.id}"></span>` });
-    }
-    // 뒤에서 앞으로 적용
-    ops.sort((x,y)=> y.pos - x.pos || (x.type>y.type?1:-1));
-    let out = escapeHtml(raw);
-    for(const op of ops){
-      out = out.slice(0, op.pos) + op.html + out.slice(op.pos);
-    }
-    return out;
-  }
-
-  function renderStats({raw, a, b, na, nb, occA, occB, pairs}){
-    statsBox.style.display = "flex";
-    statsBox.innerHTML = `
-      <span class="chip">문자열 A: <strong>${escapeHtml(a)}</strong> (정규화 길이 ${na.length})</span>
-      <span class="chip">문자열 B: <strong>${escapeHtml(b)}</strong> (정규화 길이 ${nb.length})</span>
-      <span class="chip">A 발생: ${occA.length}회</span>
-      <span class="chip">B 발생: ${occB.length}회</span>
-      <span class="chip">동시 출현(간격 ≤ N): <strong>${pairs.length}</strong>쌍</span>
-      <span class="chip">텍스트 길이: ${raw.length}자</span>
-    `;
+  function renderStats({raw,a,b,na,nb,occA,occB,pairs}){
+    statsBox.style.display="flex";
+    statsBox.innerHTML=`
+      <span class="chip">A: ${escapeHtml(a)} (${na.length})</span>
+      <span class="chip">B: ${escapeHtml(b)} (${nb.length})</span>
+      <span class="chip">A 발생 ${occA.length}회</span>
+      <span class="chip">B 발생 ${occB.length}회</span>
+      <span class="chip">동시출현 ${pairs.length}쌍</span>
+      <span class="chip">텍스트 길이 ${raw.length}자</span>`;
   }
 
   function renderResults(items){
-    resultsBox.innerHTML = "";
-    if(items.length === 0){
-      resultsBox.innerHTML = `<div class="muted">조건을 만족하는 결과가 없습니다.</div>`;
-      return;
-    }
-    const frag = document.createDocumentFragment();
-    items.forEach((r,i)=>{
-      const div = document.createElement("div");
-      div.className = "result";
-      div.innerHTML = `
-        <h4>#${r.index} · 간격: ${r.gap}자</h4>
-        <p>${r.snippetHtml}</p>
-        <div class="muted" style="margin-top:6px">
-          <span class="linklike" data-anchor="hit-${r.index}">전체 보기에서 위치로 이동</span>
-        </div>
-      `;
-      div.querySelector(".linklike").addEventListener("click", ()=>{
-        // 전체 텍스트 표시되어 있지 않으면 먼저 생성
-        if(fullTextWrap.style.display === "none"){
-          showFullBtn.click();
-          setTimeout(()=>document.getElementById(`hit-${r.index}`)?.scrollIntoView({behavior:"smooth", block:"center"}), 50);
-        }else{
-          document.getElementById(`hit-${r.index}`)?.scrollIntoView({behavior:"smooth", block:"center"});
-        }
-      });
-      frag.appendChild(div);
+    resultsBox.innerHTML="";
+    if(items.length==0){resultsBox.innerHTML="<div class='muted'>결과 없음</div>"; return;}
+    items.forEach(r=>{
+      const div=document.createElement("div");
+      div.className="result";
+      div.innerHTML=`<h4>#${r.index} · 간격 ${r.gap}자</h4><p>${r.snippetHtml}</p>`;
+      resultsBox.appendChild(div);
     });
-    resultsBox.appendChild(frag);
   }
 
-  function csvEscape(s){
-    if(typeof s !== "string") s = String(s);
-    if(s.includes('"') || s.includes(",") || s.includes("\n")){
-      return `"${s.replace(/"/g,'""')}"`;
-    }
-    return s;
-  }
-  function toCSV(rows){
-    return rows.map(r => r.map(x=>typeof x==="string"?x:String(x)).join(",")).join("\n");
-  }
   function stripHtml(html){
-    const tmp = document.createElement("div");
-    tmp.innerHTML = html;
-    return tmp.textContent || tmp.innerText || "";
+    const tmp=document.createElement("div"); tmp.innerHTML=html; return tmp.textContent||"";
   }
+
 })();
 </script>
 </body>
